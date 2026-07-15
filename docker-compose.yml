@@ -10,10 +10,12 @@ services:
       PORT: "8080"
       # Banco SQLite persistido no volume abaixo.
       DATABASE_URL: file:./data/projeteus.db
+    # Exposto direto numa porta do host (padrão dos demais sistemas da VPS).
+    # Troque a porta definindo APP_PORT no .env (default 3020).
+    ports:
+      - "${APP_PORT:-3020}:8080"
     volumes:
       - projeteus_data:/app/data
-    expose:
-      - "8080"
     healthcheck:
       test:
         - CMD
@@ -25,21 +27,5 @@ services:
       retries: 5
       start_period: 20s
 
-  # Reverse proxy com HTTPS automático (Let's Encrypt).
-  caddy:
-    image: caddy:2
-    restart: unless-stopped
-    depends_on:
-      - app
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-
 volumes:
   projeteus_data:
-  caddy_data:
-  caddy_config:

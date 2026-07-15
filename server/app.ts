@@ -44,7 +44,10 @@ app.use("/api", router);
 
 
 if (process.env.NODE_ENV === "production") {
-  app.set("trust proxy", 1);
+  // Só confie em headers de proxy quando realmente houver um proxy HTTPS na frente.
+  if (process.env.COOKIE_SECURE === "true") {
+    app.set("trust proxy", 1);
+  }
 
   const clientDir = path.resolve(process.cwd(), "dist/public");
 

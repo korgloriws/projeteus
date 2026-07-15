@@ -18,5 +18,4 @@ data
 
 # Arquivos de infra que não precisam estar dentro da imagem do app
 docker-compose.yml
-Caddyfile
 README.md

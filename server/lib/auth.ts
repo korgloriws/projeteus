@@ -46,11 +46,18 @@ export function verifySession(token: string): SessionPayload | null {
   }
 }
 
+// Cookie "secure" exige HTTPS. Em deploy via HTTP (porta direta), deixe
+// COOKIE_SECURE ausente/"false" para o login funcionar. Ative ("true") só
+// quando a aplicação estiver atrás de HTTPS.
+function isSecureCookie(): boolean {
+  return process.env.COOKIE_SECURE === "true";
+}
+
 export function setSessionCookie(res: Response, token: string): void {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecureCookie(),
     maxAge: SESSION_MAX_AGE_MS,
     path: "/",
   });
@@ -60,7 +67,7 @@ export function clearSessionCookie(res: Response): void {
   res.clearCookie(SESSION_COOKIE, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecureCookie(),
     path: "/",
   });
 }

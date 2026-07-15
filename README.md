@@ -83,16 +83,18 @@ projeteus/
 ## Deploy com Docker (VPS)
 
 Em produção, **um único container Node** builda e serve o front-end (SPA) **e** a API
-na mesma porta (`8080`). Na frente, o **Caddy** funciona como reverse proxy com
-**HTTPS automático** (Let's Encrypt) — isso é necessário porque o cookie de sessão é
-`secure` em produção (só trafega por HTTPS).
+na mesma origem. O container é exposto **diretamente numa porta do host** (mesmo padrão
+dos outros sistemas da VPS, ex.: `http://31.97.167.75:3020`).
 
 Arquivos de infra (na raiz de `projeteus/`):
 
 - `Dockerfile` — builda front + API e roda migração de schema no start
-- `docker-compose.yml` — orquestra `app` + `caddy` com volumes persistentes
-- `Caddyfile` — reverse proxy + TLS automático
+- `docker-compose.yml` — sobe o container com volume persistente para o SQLite
 - `.env.production.example` — modelo das variáveis de produção
+
+> **Cookie de sessão e HTTP:** o cookie `secure` exige HTTPS. Como o acesso aqui é por
+> HTTP numa porta, mantenha `COOKIE_SECURE=false` no `.env` para o login funcionar.
+> Se um dia colocar HTTPS (reverse proxy/domínio) na frente, mude para `COOKIE_SECURE=true`.
 
 ### 1) Subir o projeto para o GitHub (na máquina local)
 
@@ -111,25 +113,29 @@ git push -u origin main
 ### 2) Preparar a VPS (Ubuntu 24.04 com Docker)
 
 Acesse via SSH (`ssh root@31.97.167.75`). O plano da Hostinger já vem com Docker;
-confirme com `docker --version` e `docker compose version`. Abra as portas 80 e 443:
+confirme com `docker --version` e `docker compose version`. Libere a porta escolhida
+(ex.: `3020`) no firewall (se o `ufw` estiver ativo):
 
 ```bash
-ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw --force enable
+ufw allow 3020
 ```
 
 ### 3) Clonar e configurar
 
 ```bash
-git clone https://github.com/korgloriws/projeteus.git
-cd projeteus
+mkdir -p /opt/projeteus && cd /opt/projeteus
+git clone https://github.com/korgloriws/projeteus.git .
 cp .env.production.example .env
-# edite o .env e defina um SESSION_SECRET forte:
-#   sed -i "s|^SESSION_SECRET=.*|SESSION_SECRET=$(openssl rand -hex 32)|" .env
+sed -i "s|^SESSION_SECRET=.*|SESSION_SECRET=$(openssl rand -hex 32)|" .env
 nano .env
 ```
 
-No `Caddyfile`, confirme que o domínio aponta para a VPS. O hostname
-`srv1176791.hstgr.cloud` deve resolver para `31.97.167.75` (ou troque por um domínio próprio).
+No `.env`, ajuste principalmente:
+
+- `APP_PORT` — porta pública (default `3020`; use uma livre na VPS)
+- `SESSION_SECRET` — já preenchido com valor aleatório pelo comando acima
+- `WEB_ORIGIN` — `http://31.97.167.75:<APP_PORT>`
+- `COOKIE_SECURE=false` (acesso por HTTP)
 
 ### 4) Subir a aplicação
 
@@ -144,16 +150,15 @@ Crie o **admin inicial** (uma única vez — o seed apaga os dados!):
 docker compose exec app npm run db:seed
 ```
 
-Acesse: **https://srv1176791.hstgr.cloud**
+Acesse: **http://31.97.167.75:3020** (ou a porta que definiu em `APP_PORT`).
 
 ### Comandos do dia a dia
 
 ```bash
 docker compose logs -f app        # logs da aplicação
-docker compose logs -f caddy      # logs do proxy / TLS
-docker compose ps                 # status dos containers
-docker compose restart app        # reiniciar só a app
-docker compose down               # parar tudo (dados ficam nos volumes)
+docker compose ps                 # status do container
+docker compose restart app        # reiniciar a app
+docker compose down               # parar (dados ficam no volume)
 ```
 
 ### Atualizar após novas mudanças
@@ -163,5 +168,4 @@ git pull
 docker compose up -d --build
 ```
 
-Os dados persistem no volume `projeteus_data` (SQLite) e os certificados TLS no
-volume `caddy_data`, então rebuilds **não** apagam nada.
+Os dados persistem no volume `projeteus_data` (SQLite), então rebuilds **não** apagam nada.
