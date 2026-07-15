@@ -1,0 +1,22 @@
+# Dependências e artefatos (reinstalados/recompilados dentro da imagem)
+node_modules
+dist
+server/dist
+db/dist
+*.tsbuildinfo
+
+# Dados locais e segredos (nunca vão para a imagem)
+data
+.env
+.env.local
+.env.production
+
+# Metadados / editor
+.git
+.gitignore
+.vscode
+
+# Arquivos de infra que não precisam estar dentro da imagem do app
+docker-compose.yml
+Caddyfile
+README.md

@@ -1,0 +1,21 @@
+# Reverse proxy do ProjetEUs com HTTPS automático (Let's Encrypt).
+#
+# Requisitos para o certificado automático funcionar:
+#   - O domínio abaixo precisa resolver (DNS) para o IP da VPS.
+#   - As portas 80 e 443 precisam estar abertas no firewall da VPS.
+#
+# Troque o domínio pelo seu (ou pelo hostname da VPS que aponte para o IP).
+
+srv1176791.hstgr.cloud {
+	encode gzip zstd
+	reverse_proxy app:8080
+}
+
+# --- Alternativa só para TESTE rápido via IP (HTTP, sem HTTPS) ---
+# Se ainda não tiver domínio apontando, comente o bloco acima e use este.
+# ATENÇÃO: com HTTP o login NÃO persiste, pois o cookie de sessão é "secure"
+# em produção (só trafega por HTTPS). Use apenas para checar se a app sobe.
+#
+# :80 {
+# 	reverse_proxy app:8080
+# }
