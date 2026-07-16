@@ -10,6 +10,7 @@ import projectMembersRouter from "./project-members";
 import stagesRouter from "./stages";
 import tasksRouter from "./tasks";
 import commentsRouter from "./comments";
+import attachmentsRouter from "./attachments";
 import dashboardRouter from "./dashboard";
 import notificationsRouter from "./notifications";
 
@@ -26,6 +27,7 @@ router.use(projectMembersRouter);
 router.use(stagesRouter);
 router.use(tasksRouter);
 router.use(commentsRouter);
+router.use(attachmentsRouter);
 router.use(dashboardRouter);
 router.use(notificationsRouter);
 

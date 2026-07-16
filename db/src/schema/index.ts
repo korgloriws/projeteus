@@ -10,4 +10,5 @@ export * from "./stage-members";
 export * from "./tasks";
 export * from "./task-assignees";
 export * from "./comments";
+export * from "./attachments";
 export * from "./notifications";

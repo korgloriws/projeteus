@@ -11,10 +11,17 @@ import {
   useListProjects,
   useListUsers,
   useUpdateProject,
+  useListAttachments,
+  useDeleteAttachment,
+  uploadPendingFiles,
   type Project,
 } from "@api/client";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { AssignmentChecklist } from "@/components/AssignmentChecklist";
+import {
+  AttachmentsField,
+  type PendingFile,
+} from "@/components/attachments/AttachmentsField";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -96,6 +103,9 @@ export default function ProjectsList() {
   const [status, setStatus] = useState<Project["status"]>("planejamento");
   const [priority, setPriority] = useState<Project["priority"]>("media");
   const [error, setError] = useState<string | null>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingFile[]>([]);
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
+  const [removingAttachmentId, setRemovingAttachmentId] = useState<number | null>(null);
 
   const { data: projects, isLoading } = useListProjects();
   const { data: orgs } = useListOrganizations();
@@ -104,6 +114,16 @@ export default function ProjectsList() {
   const createProject = useCreateProjectWithGestor();
   const updateProject = useUpdateProject();
   const deleteProject = useDeleteProject();
+  const deleteAttachment = useDeleteAttachment();
+
+  const { data: editingAttachments = [], refetch: refetchEditingAttachments } =
+    useListAttachments(
+      {
+        projectId: editingProject?.id ?? 0,
+        scope: "project",
+      },
+      { query: { enabled: Boolean(editingProject?.id) } },
+    );
 
   const canCreate = me?.role === "admin" || me?.role === "gestor";
   const canEdit = canCreate;
@@ -170,6 +190,9 @@ export default function ProjectsList() {
     setPriority("media");
     setError(null);
     setEditingProject(null);
+    setPendingAttachments([]);
+    setUploadingAttachments(false);
+    setRemovingAttachmentId(null);
   }
 
   function openCreateDialog() {
@@ -184,6 +207,7 @@ export default function ProjectsList() {
     setDueDate(project.dueDate ? project.dueDate.slice(0, 10) : "");
     setStatus(project.status);
     setPriority(project.priority);
+    setPendingAttachments([]);
     setError(null);
     setDialogOpen(true);
   }
@@ -216,14 +240,31 @@ export default function ProjectsList() {
           },
         },
         {
-          onSuccess: (project) => {
-            queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
-            toast({
-              title: "Projeto atualizado",
-              description: `${project.title} foi salvo com sucesso.`,
-            });
-            setDialogOpen(false);
-            resetForm();
+          onSuccess: async (project) => {
+            try {
+              if (pendingAttachments.length > 0) {
+                setUploadingAttachments(true);
+                await uploadPendingFiles(
+                  project.id,
+                  pendingAttachments.map((item) => item.file),
+                );
+              }
+              queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+              toast({
+                title: "Projeto atualizado",
+                description: `${project.title} foi salvo com sucesso.`,
+              });
+              setDialogOpen(false);
+              resetForm();
+            } catch (err) {
+              setError(
+                err instanceof Error
+                  ? err.message
+                  : "Projeto salvo, mas falhou o envio de anexos.",
+              );
+            } finally {
+              setUploadingAttachments(false);
+            }
           },
           onError: (err) => {
             setError(err instanceof Error ? err.message : "Não foi possível atualizar o projeto.");
@@ -261,15 +302,38 @@ export default function ProjectsList() {
         dueDate: dueDate || undefined,
       },
       {
-        onSuccess: (project) => {
-          queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
-          toast({
-            title: "Projeto criado",
-            description: `${project.title} foi iniciado com sucesso.`,
-          });
-          setDialogOpen(false);
-          resetForm();
-          setLocation(`/projects/${project.id}`);
+        onSuccess: async (project) => {
+          try {
+            if (pendingAttachments.length > 0) {
+              setUploadingAttachments(true);
+              await uploadPendingFiles(
+                project.id,
+                pendingAttachments.map((item) => item.file),
+              );
+            }
+            queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+            toast({
+              title: "Projeto criado",
+              description: `${project.title} foi iniciado com sucesso.`,
+            });
+            setDialogOpen(false);
+            resetForm();
+            setLocation(`/projects/${project.id}`);
+          } catch (err) {
+            toast({
+              variant: "destructive",
+              title: "Projeto criado, mas anexos falharam",
+              description:
+                err instanceof Error
+                  ? err.message
+                  : "Abra o projeto e tente anexar novamente.",
+            });
+            setDialogOpen(false);
+            resetForm();
+            setLocation(`/projects/${project.id}`);
+          } finally {
+            setUploadingAttachments(false);
+          }
         },
         onError: (err) => {
           setError(err instanceof Error ? err.message : "Não foi possível criar o projeto.");
@@ -481,7 +545,7 @@ export default function ProjectsList() {
       )}
 
       <Dialog open={dialogOpen} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingProject ? "Editar Projeto" : "Novo Projeto"}</DialogTitle>
             <DialogDescription>
@@ -551,13 +615,77 @@ export default function ProjectsList() {
                   onChange={(e) => setDueDate(e.target.value)}
                 />
               </div>
+              <AttachmentsField
+                existing={editingAttachments}
+                pending={pendingAttachments}
+                onPendingChange={setPendingAttachments}
+                canEdit={canEdit}
+                uploading={uploadingAttachments}
+                removingId={removingAttachmentId}
+                onUploadFiles={async (files) => {
+                  if (!editingProject) return;
+                  setUploadingAttachments(true);
+                  try {
+                    await uploadPendingFiles(editingProject.id, files);
+                    await refetchEditingAttachments();
+                    toast({
+                      title: "Anexo enviado",
+                      description: files.length === 1
+                        ? `${files[0]!.name} foi anexado.`
+                        : `${files.length} arquivos anexados.`,
+                    });
+                  } catch (err) {
+                    toast({
+                      variant: "destructive",
+                      title: "Erro no upload",
+                      description:
+                        err instanceof Error
+                          ? err.message
+                          : "Não foi possível enviar o arquivo.",
+                    });
+                  } finally {
+                    setUploadingAttachments(false);
+                  }
+                }}
+                onRemoveExisting={(attachment) => {
+                  setRemovingAttachmentId(attachment.id);
+                  deleteAttachment.mutate(
+                    { id: attachment.id, projectId: attachment.projectId },
+                    {
+                      onSuccess: () => {
+                        void refetchEditingAttachments();
+                        toast({
+                          title: "Anexo removido",
+                          description: attachment.originalName,
+                        });
+                      },
+                      onError: (err) => {
+                        toast({
+                          variant: "destructive",
+                          title: "Erro ao remover",
+                          description:
+                            err instanceof Error
+                              ? err.message
+                              : "Não foi possível remover o anexo.",
+                        });
+                      },
+                      onSettled: () => setRemovingAttachmentId(null),
+                    },
+                  );
+                }}
+              />
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                   Cancelar
                 </Button>
-                <Button type="submit" disabled={updateProject.isPending}>
-                  {updateProject.isPending ? "Salvando..." : "Salvar alterações"}
+                <Button
+                  type="submit"
+                  disabled={updateProject.isPending || uploadingAttachments}
+                >
+                  {updateProject.isPending || uploadingAttachments
+                    ? "Salvando..."
+                    : "Salvar alterações"}
                 </Button>
               </DialogFooter>
             </form>
@@ -674,6 +802,11 @@ export default function ProjectsList() {
                   onChange={(e) => setDueDate(e.target.value)}
                 />
               </div>
+              <AttachmentsField
+                pending={pendingAttachments}
+                onPendingChange={setPendingAttachments}
+                canEdit
+              />
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
@@ -683,6 +816,7 @@ export default function ProjectsList() {
                   type="submit"
                   disabled={
                     createProject.isPending ||
+                    uploadingAttachments ||
                     eligibleGestors.length === 0 ||
                     !(
                       gestorUserId ||
@@ -690,7 +824,9 @@ export default function ProjectsList() {
                     )
                   }
                 >
-                  {createProject.isPending ? "Criando..." : "Criar projeto"}
+                  {createProject.isPending || uploadingAttachments
+                    ? "Criando..."
+                    : "Criar projeto"}
                 </Button>
               </DialogFooter>
             </form>

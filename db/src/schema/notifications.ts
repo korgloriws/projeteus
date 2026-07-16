@@ -19,6 +19,7 @@ export const notificationTypeValues = [
   "stage_completed",
   "stage_deleted",
   "comment_created",
+  "attachment_uploaded",
   "project_updated",
   "project_gestor_assigned",
   "member_added",

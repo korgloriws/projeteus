@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { client, db } from "./index";
 import {
   commentsTable,
+  attachmentsTable,
   organizationsTable,
   projectMembersTable,
   projectsTable,
@@ -17,6 +18,7 @@ const adminName = process.env.SEED_ADMIN_NAME ?? "Mateus";
 const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? "projeteus";
 
 async function seed() {
+  await db.delete(attachmentsTable);
   await db.delete(commentsTable);
   await db.delete(tasksTable);
   await db.delete(stagesTable);

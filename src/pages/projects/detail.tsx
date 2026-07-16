@@ -27,6 +27,9 @@ import {
   getGetProjectSummaryQueryKey,
   getListProjectMembersQueryKey,
   getListProjectsQueryKey,
+  useListAttachments,
+  useDeleteAttachment,
+  uploadPendingFiles,
   type Project,
   type Stage,
   type StageWithMembers,
@@ -46,9 +49,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Calendar, AlertCircle, MessageSquare, Send, AlertTriangle, Plus, Users, Pencil, Trash2, MoreHorizontal, CheckCircle2 } from "lucide-react";
+import { Calendar, AlertCircle, MessageSquare, Send, AlertTriangle, Plus, Users, Pencil, Trash2, MoreHorizontal, CheckCircle2, Paperclip } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { AssignmentChecklist } from "@/components/AssignmentChecklist";
+import {
+  AttachmentsField,
+  type PendingFile,
+} from "@/components/attachments/AttachmentsField";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   DropdownMenu,
@@ -135,6 +142,11 @@ export default function ProjectDetail() {
   const { data: members } = useListProjectMembers(projectId);
   const { data: users } = useListUsers();
   const { data: me } = useGetMe();
+  const { data: allAttachments = [], refetch: refetchAttachments } =
+    useListAttachments(
+      { projectId, scope: "all" },
+      { query: { enabled: Number.isFinite(projectId) && projectId > 0 } },
+    );
 
   const createComment = useCreateProjectComment();
   const createStage = useCreateStageWithMembers();
@@ -154,6 +166,7 @@ export default function ProjectDetail() {
   const reorderStageMutation = useReorderStage();
   const reorderTaskMutation = useReorderTask();
   const moveTaskWithOrderMutation = useMoveTaskWithOrder();
+  const deleteAttachment = useDeleteAttachment();
 
   const isProjectGestorForBoard = members?.some(
     (member) => member.userId === me?.id && member.role === "gestor",
@@ -220,6 +233,11 @@ export default function ProjectDetail() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [taskStatus, setTaskStatus] = useState<"a_fazer" | "em_andamento" | "em_revisao" | "concluida">("a_fazer");
   const [taskPriority, setTaskPriority] = useState<"baixa" | "media" | "alta" | "urgente">("media");
+  const [pendingProjectAttachments, setPendingProjectAttachments] = useState<PendingFile[]>([]);
+  const [pendingStageAttachments, setPendingStageAttachments] = useState<PendingFile[]>([]);
+  const [pendingTaskAttachments, setPendingTaskAttachments] = useState<PendingFile[]>([]);
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
+  const [removingAttachmentId, setRemovingAttachmentId] = useState<number | null>(null);
   const [projectEditOpen, setProjectEditOpen] = useState(false);
   const [projectTitle, setProjectTitle] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
@@ -295,6 +313,67 @@ export default function ProjectDetail() {
   const canManageStages = canManageTasks;
   const canDeleteProject = me?.role === "admin";
 
+  const projectAttachments = allAttachments.filter(
+    (item) => item.stageId == null && item.taskId == null,
+  );
+  const attachmentsForStage = (stageId: number) =>
+    allAttachments.filter(
+      (item) => item.stageId === stageId && item.taskId == null,
+    );
+  const attachmentsForTask = (taskId: number) =>
+    allAttachments.filter((item) => item.taskId === taskId);
+
+  async function handleUploadToScope(
+    files: File[],
+    links?: { stageId?: number; taskId?: number },
+  ) {
+    setUploadingAttachments(true);
+    try {
+      await uploadPendingFiles(projectId, files, links);
+      await refetchAttachments();
+      toast({
+        title: "Anexo enviado",
+        description:
+          files.length === 1
+            ? `${files[0]!.name} foi anexado.`
+            : `${files.length} arquivos anexados.`,
+      });
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Erro no upload",
+        description:
+          err instanceof Error ? err.message : "Não foi possível enviar o arquivo.",
+      });
+    } finally {
+      setUploadingAttachments(false);
+    }
+  }
+
+  function handleRemoveAttachment(attachmentId: number, name: string) {
+    setRemovingAttachmentId(attachmentId);
+    deleteAttachment.mutate(
+      { id: attachmentId, projectId },
+      {
+        onSuccess: () => {
+          void refetchAttachments();
+          toast({ title: "Anexo removido", description: name });
+        },
+        onError: (err) => {
+          toast({
+            variant: "destructive",
+            title: "Erro ao remover",
+            description:
+              err instanceof Error
+                ? err.message
+                : "Não foi possível remover o anexo.",
+          });
+        },
+        onSettled: () => setRemovingAttachmentId(null),
+      },
+    );
+  }
+
   function invalidateProjectQueries() {
     queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(projectId) });
     queryClient.invalidateQueries({ queryKey: getGetProjectSummaryQueryKey(projectId) });
@@ -362,6 +441,7 @@ export default function ProjectDetail() {
 
   function openTaskDialog(stageId: number, task?: Task) {
     setTaskStageId(stageId);
+    setPendingTaskAttachments([]);
     if (task) {
       setEditingTask(task);
       setTaskTitle(task.title);
@@ -383,6 +463,7 @@ export default function ProjectDetail() {
     setTaskAssigneeIds([]);
     setTaskDueDate("");
     setTaskError(null);
+    setPendingTaskAttachments([]);
   }
 
   function handleTaskDialogChange(open: boolean) {
@@ -425,10 +506,29 @@ export default function ProjectDetail() {
           },
         },
         {
-          onSuccess: () => {
-            invalidateProjectQueries();
-            toast({ title: "Tarefa atualizada", description: `${trimmedTitle} foi salva.` });
-            handleTaskDialogChange(false);
+          onSuccess: async () => {
+            try {
+              if (pendingTaskAttachments.length > 0) {
+                setUploadingAttachments(true);
+                await uploadPendingFiles(
+                  projectId,
+                  pendingTaskAttachments.map((item) => item.file),
+                  { taskId: editingTask.id },
+                );
+                await refetchAttachments();
+              }
+              invalidateProjectQueries();
+              toast({ title: "Tarefa atualizada", description: `${trimmedTitle} foi salva.` });
+              handleTaskDialogChange(false);
+            } catch (err) {
+              setTaskError(
+                err instanceof Error
+                  ? err.message
+                  : "Tarefa salva, mas falhou o envio de anexos.",
+              );
+            } finally {
+              setUploadingAttachments(false);
+            }
           },
           onError: (err) => {
             setTaskError(err instanceof Error ? err.message : "Não foi possível atualizar a tarefa.");
@@ -449,13 +549,37 @@ export default function ProjectDetail() {
         },
       },
       {
-        onSuccess: () => {
-          invalidateProjectQueries();
-          toast({
-            title: "Tarefa criada",
-            description: `${trimmedTitle} foi adicionada à etapa.`,
-          });
-          handleTaskDialogChange(false);
+        onSuccess: async (task) => {
+          try {
+            if (pendingTaskAttachments.length > 0) {
+              setUploadingAttachments(true);
+              await uploadPendingFiles(
+                projectId,
+                pendingTaskAttachments.map((item) => item.file),
+                { taskId: task.id },
+              );
+              await refetchAttachments();
+            }
+            invalidateProjectQueries();
+            toast({
+              title: "Tarefa criada",
+              description: `${trimmedTitle} foi adicionada à etapa.`,
+            });
+            handleTaskDialogChange(false);
+          } catch (err) {
+            invalidateProjectQueries();
+            toast({
+              variant: "destructive",
+              title: "Tarefa criada, anexos falharam",
+              description:
+                err instanceof Error
+                  ? err.message
+                  : "Edite a tarefa para anexar novamente.",
+            });
+            handleTaskDialogChange(false);
+          } finally {
+            setUploadingAttachments(false);
+          }
         },
         onError: (err) => {
           setTaskError(err instanceof Error ? err.message : "Não foi possível criar a tarefa.");
@@ -556,6 +680,7 @@ export default function ProjectDetail() {
   }
 
   function openStageDialog(stage?: StageWithMembers) {
+    setPendingStageAttachments([]);
     if (stage) {
       setEditingStage(stage);
       setStageName(stage.name);
@@ -577,6 +702,7 @@ export default function ProjectDetail() {
     setStageMemberIds([]);
     setStageError(null);
     setEditingStage(null);
+    setPendingStageAttachments([]);
   }
 
   function toggleStageMember(userId: number) {
@@ -632,11 +758,30 @@ export default function ProjectDetail() {
           },
         },
         {
-          onSuccess: () => {
-            invalidateProjectQueries();
-            toast({ title: "Etapa atualizada", description: `${trimmedName} foi salva.` });
-            setStageDialogOpen(false);
-            resetStageForm();
+          onSuccess: async () => {
+            try {
+              if (pendingStageAttachments.length > 0) {
+                setUploadingAttachments(true);
+                await uploadPendingFiles(
+                  projectId,
+                  pendingStageAttachments.map((item) => item.file),
+                  { stageId: editingStage.id },
+                );
+                await refetchAttachments();
+              }
+              invalidateProjectQueries();
+              toast({ title: "Etapa atualizada", description: `${trimmedName} foi salva.` });
+              setStageDialogOpen(false);
+              resetStageForm();
+            } catch (err) {
+              setStageError(
+                err instanceof Error
+                  ? err.message
+                  : "Etapa salva, mas falhou o envio de anexos.",
+              );
+            } finally {
+              setUploadingAttachments(false);
+            }
           },
           onError: (err) => {
             setStageError(err instanceof Error ? err.message : "Não foi possível atualizar a etapa.");
@@ -663,14 +808,39 @@ export default function ProjectDetail() {
         },
       },
       {
-        onSuccess: () => {
-          invalidateProjectQueries();
-          toast({
-            title: "Etapa criada",
-            description: `${trimmedName} foi adicionada ao projeto.`,
-          });
-          setStageDialogOpen(false);
-          resetStageForm();
+        onSuccess: async (stage) => {
+          try {
+            if (pendingStageAttachments.length > 0) {
+              setUploadingAttachments(true);
+              await uploadPendingFiles(
+                projectId,
+                pendingStageAttachments.map((item) => item.file),
+                { stageId: stage.id },
+              );
+              await refetchAttachments();
+            }
+            invalidateProjectQueries();
+            toast({
+              title: "Etapa criada",
+              description: `${trimmedName} foi adicionada ao projeto.`,
+            });
+            setStageDialogOpen(false);
+            resetStageForm();
+          } catch (err) {
+            invalidateProjectQueries();
+            toast({
+              variant: "destructive",
+              title: "Etapa criada, anexos falharam",
+              description:
+                err instanceof Error
+                  ? err.message
+                  : "Edite a etapa para anexar novamente.",
+            });
+            setStageDialogOpen(false);
+            resetStageForm();
+          } finally {
+            setUploadingAttachments(false);
+          }
         },
         onError: (err) => {
           setStageError(err instanceof Error ? err.message : "Não foi possível criar a etapa.");
@@ -981,9 +1151,32 @@ export default function ProjectDetail() {
               <Badge variant="secondary" className="font-normal">
                 {summary.totalStages} etapa{summary.totalStages === 1 ? "" : "s"}
               </Badge>
+              {projectAttachments.length > 0 ? (
+                <Badge variant="secondary" className="font-normal gap-1">
+                  <Paperclip className="h-3 w-3" />
+                  {projectAttachments.length} anexo
+                  {projectAttachments.length === 1 ? "" : "s"}
+                </Badge>
+              ) : null}
             </div>
           </div>
         )}
+
+        <div className="mt-4 pt-4 border-t">
+          <AttachmentsField
+            label="Documentos do projeto"
+            existing={projectAttachments}
+            pending={pendingProjectAttachments}
+            onPendingChange={setPendingProjectAttachments}
+            canEdit={canManageTasks}
+            uploading={uploadingAttachments}
+            removingId={removingAttachmentId}
+            onUploadFiles={(files) => handleUploadToScope(files)}
+            onRemoveExisting={(attachment) =>
+              handleRemoveAttachment(attachment.id, attachment.originalName)
+            }
+          />
+        </div>
       </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1049,6 +1242,7 @@ export default function ProjectDetail() {
               >
               {boardDnd.sortedStages.map((stage) => {
                 const stageTasks = boardDnd.getStageTasks(stage.id);
+                const stageFiles = attachmentsForStage(stage.id);
                 const isCompletedStage = stage.status === "concluido";
                 const { pendingTasks, hasTasks, allTasksComplete, canCompleteStage } =
                   getStageCompletionState(stageTasks);
@@ -1089,6 +1283,12 @@ export default function ProjectDetail() {
                         <Badge variant="secondary" className="text-xs shrink-0">
                           {stageTasks.length} tarefa{stageTasks.length === 1 ? "" : "s"}
                         </Badge>
+                        {stageFiles.length > 0 ? (
+                          <Badge variant="outline" className="text-[10px] gap-1 shrink-0">
+                            <Paperclip className="h-3 w-3" />
+                            {stageFiles.length}
+                          </Badge>
+                        ) : null}
                         {(stageMemberIdsById.get(stage.id) ?? []).length > 0 && (
                           <div className="flex items-center gap-1 shrink-0">
                             <Users className="h-3 w-3 text-muted-foreground" />
@@ -1231,6 +1431,7 @@ export default function ProjectDetail() {
                               .substring(0, 2)
                               .toUpperCase();
                             const isMyTask = me?.id != null && assigneeIds.includes(me.id);
+                            const taskFiles = attachmentsForTask(task.id);
 
                             return (
                               <SortableTaskItem
@@ -1245,6 +1446,12 @@ export default function ProjectDetail() {
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <div className="font-medium text-sm">{task.title}</div>
+                                    {taskFiles.length > 0 ? (
+                                      <Badge variant="outline" className="text-[10px] gap-1">
+                                        <Paperclip className="h-3 w-3" />
+                                        {taskFiles.length}
+                                      </Badge>
+                                    ) : null}
                                     {!canManageTasks && isMyTask && (
                                       <Badge variant="secondary" className="text-[10px]">
                                         Você é responsável
@@ -1584,7 +1791,7 @@ export default function ProjectDetail() {
       </Dialog>
 
       <Dialog open={taskDialogOpen} onOpenChange={handleTaskDialogChange}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingTask ? "Editar Tarefa" : "Nova Tarefa"}</DialogTitle>
             <DialogDescription>
@@ -1668,6 +1875,23 @@ export default function ProjectDetail() {
                 onChange={(e) => setTaskDueDate(e.target.value)}
               />
             </div>
+            <AttachmentsField
+              label="Anexos da tarefa"
+              existing={editingTask ? attachmentsForTask(editingTask.id) : []}
+              pending={pendingTaskAttachments}
+              onPendingChange={setPendingTaskAttachments}
+              canEdit={canManageTasks}
+              uploading={uploadingAttachments}
+              removingId={removingAttachmentId}
+              onUploadFiles={
+                editingTask
+                  ? (files) => handleUploadToScope(files, { taskId: editingTask.id })
+                  : undefined
+              }
+              onRemoveExisting={(attachment) =>
+                handleRemoveAttachment(attachment.id, attachment.originalName)
+              }
+            />
             {taskError ? <p className="text-sm text-destructive">{taskError}</p> : null}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => handleTaskDialogChange(false)}>
@@ -1678,11 +1902,12 @@ export default function ProjectDetail() {
                 disabled={
                   createTask.isPending ||
                   updateTaskWithAssignees.isPending ||
+                  uploadingAttachments ||
                   taskAssigneeIds.length === 0 ||
                   taskAssigneeOptions.length === 0
                 }
               >
-                {createTask.isPending || updateTaskWithAssignees.isPending
+                {createTask.isPending || updateTaskWithAssignees.isPending || uploadingAttachments
                   ? "Salvando..."
                   : editingTask
                     ? "Salvar alterações"
@@ -1694,7 +1919,7 @@ export default function ProjectDetail() {
       </Dialog>
 
       <Dialog open={stageDialogOpen} onOpenChange={handleStageDialogChange}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingStage ? "Editar Etapa" : "Nova Etapa"}</DialogTitle>
             <DialogDescription>
@@ -1775,13 +2000,39 @@ export default function ProjectDetail() {
                 </div>
               )}
             </div>
+            <AttachmentsField
+              label="Anexos da etapa"
+              existing={editingStage ? attachmentsForStage(editingStage.id) : []}
+              pending={pendingStageAttachments}
+              onPendingChange={setPendingStageAttachments}
+              canEdit={canManageStages}
+              uploading={uploadingAttachments}
+              removingId={removingAttachmentId}
+              onUploadFiles={
+                editingStage
+                  ? (files) => handleUploadToScope(files, { stageId: editingStage.id })
+                  : undefined
+              }
+              onRemoveExisting={(attachment) =>
+                handleRemoveAttachment(attachment.id, attachment.originalName)
+              }
+            />
             {stageError ? <p className="text-sm text-destructive">{stageError}</p> : null}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setStageDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={createStage.isPending || updateStageMembers.isPending}>
-                {createStage.isPending || updateStageMembers.isPending
+              <Button
+                type="submit"
+                disabled={
+                  createStage.isPending ||
+                  updateStageMembers.isPending ||
+                  uploadingAttachments
+                }
+              >
+                {createStage.isPending ||
+                updateStageMembers.isPending ||
+                uploadingAttachments
                   ? "Salvando..."
                   : editingStage
                     ? "Salvar alterações"
