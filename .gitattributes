@@ -1,0 +1,5 @@
+# Garante LF em todos os arquivos de texto no checkout (importante no Linux/VPS).
+* text=auto eol=lf
+
+# Scripts de shell precisam SEMPRE de LF para rodar no container.
+*.sh text eol=lf

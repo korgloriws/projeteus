@@ -1,0 +1,44 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 48 48"
+  fill="none"
+  role="img"
+  aria-label="ProjeTeus"
+>
+  <!--
+    Marca ProjeTeus  board de projetos (etapas / Kanban).
+    Edite paths/grupos livremente; viewBox fixo em 48×48.
+    Cor padrão = primary orange (#F97316 H hsl(24.6 95% 53.1%)).
+  -->
+  <title>ProjeTeus</title>
+
+  <!-- moldura do workspace -->
+  <rect
+    x="3"
+    y="5"
+    width="42"
+    height="38"
+    rx="10"
+    stroke="#F97316"
+    stroke-width="2.75"
+  />
+
+  <!-- coluna 1  planejamento -->
+  <g fill="#F97316" opacity="0.4">
+    <rect x="10" y="13" width="8" height="5.5" rx="1.75" />
+    <rect x="10" y="21.5" width="8" height="5.5" rx="1.75" />
+  </g>
+
+  <!-- coluna 2  andamento -->
+  <g fill="#F97316" opacity="0.7">
+    <rect x="20" y="13" width="8" height="5.5" rx="1.75" />
+    <rect x="20" y="21.5" width="8" height="5.5" rx="1.75" />
+    <rect x="20" y="30" width="8" height="5.5" rx="1.75" />
+  </g>
+
+  <!-- coluna 3  entrega -->
+  <g fill="#F97316">
+    <rect x="30" y="13" width="8" height="5.5" rx="1.75" />
+    <rect x="30" y="21.5" width="8" height="5.5" rx="1.75" />
+  </g>
+</svg>
