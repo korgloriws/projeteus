@@ -3,6 +3,21 @@ import { motion, type Variants } from "framer-motion";
 import { Link, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   getListProjectsQueryKey,
   useCreateProjectWithGestor,
   useDeleteProject,
@@ -13,6 +28,7 @@ import {
   useUpdateProject,
   useListAttachments,
   useDeleteAttachment,
+  useReorderProjectPriorityRank,
   uploadPendingFiles,
   type Project,
 } from "@api/client";
@@ -26,7 +42,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDatePtBR } from "@/lib/dates";
-import { Plus, Search, Pencil, Trash2 } from "lucide-react";
+import { GripVertical, Plus, Search, Pencil, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
@@ -47,6 +63,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
+import { cn } from "@/lib/utils";
+import {
+  PLACE_FIRST,
+  PLACE_LAST,
+  resolvePlaceAfterProjectId,
+  sortProjectsByUrgencyRank,
+} from "@/lib/project-priority";
 
 function pickDefaultGestorUserId(
   eligibleGestors: Array<{ id: number }>,
@@ -85,6 +108,164 @@ const gridItemVariants: Variants = {
   },
 };
 
+function SortableProjectCard({
+  project,
+  canEdit,
+  canDelete,
+  canReorder,
+  isNextUrgent,
+  getStatusColor,
+  getPriorityColor,
+  getPriorityBar,
+  onEdit,
+  onDelete,
+}: {
+  project: Project;
+  canEdit: boolean;
+  canDelete: boolean;
+  canReorder: boolean;
+  isNextUrgent: boolean;
+  getStatusColor: (status: string) => string;
+  getPriorityColor: (priority: string) => string;
+  getPriorityBar: (priority: string) => string;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: project.id,
+    disabled: !canReorder,
+    data: { priority: project.priority },
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <motion.div
+      ref={setNodeRef}
+      style={style}
+      variants={gridItemVariants}
+      whileHover={isDragging ? undefined : { y: -5 }}
+      className={cn("h-full", isDragging && "z-20 opacity-90")}
+    >
+      <Card
+        className={cn(
+          "relative h-full overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-primary/50 flex flex-col",
+          isNextUrgent && "ring-2 ring-red-500/40 border-red-500/40",
+        )}
+      >
+        <span
+          className={`absolute inset-x-0 top-0 h-1 ${getPriorityBar(project.priority)}`}
+          aria-hidden="true"
+        />
+        <Link href={`/projects/${project.id}`} className="block group flex-1">
+          <CardHeader>
+            <div className="flex justify-between items-start gap-4">
+              <div className="flex items-start gap-2 min-w-0">
+                {canReorder && (
+                  <button
+                    type="button"
+                    className="mt-0.5 shrink-0 cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+                    aria-label="Arrastar para reordenar na mesma urgência"
+                    onClick={(event) => event.preventDefault()}
+                    {...attributes}
+                    {...listeners}
+                  >
+                    <GripVertical className="h-4 w-4" />
+                  </button>
+                )}
+                <CardTitle className="text-lg leading-tight group-hover:text-primary transition-colors line-clamp-2">
+                  {project.title}
+                </CardTitle>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <Badge
+                  variant="outline"
+                  className={`capitalize ${getStatusColor(project.status)}`}
+                >
+                  {project.status.replace(/_/g, " ")}
+                </Badge>
+                {isNextUrgent && (
+                  <Badge className="bg-red-600 text-white hover:bg-red-600">
+                    Próximo
+                  </Badge>
+                )}
+              </div>
+            </div>
+            <CardDescription className="line-clamp-2 mt-2 h-10">
+              {project.description || "Sem descrição."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <div className="flex flex-col gap-2 text-sm text-muted-foreground">
+              <div className="flex items-center justify-between">
+                <span>Prazo</span>
+                <span
+                  className={
+                    !project.dueDate ? "italic" : "font-medium text-foreground"
+                  }
+                >
+                  {project.dueDate
+                    ? formatDatePtBR(project.dueDate)
+                    : "Não definido"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Prioridade</span>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="font-mono tabular-nums">
+                    #{project.priorityRank ?? "—"}
+                  </Badge>
+                  <Badge
+                    variant="secondary"
+                    className={`capitalize border-none ${getPriorityColor(project.priority)}`}
+                  >
+                    {project.priority}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Link>
+        {(canEdit || canDelete) && (
+          <div className="flex gap-2 px-6 pb-4 pt-0 border-t mt-auto">
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={onEdit}
+              >
+                <Pencil className="mr-1 h-3 w-3" />
+                Editar
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                onClick={onDelete}
+              >
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+        )}
+      </Card>
+    </motion.div>
+  );
+}
+
 export default function ProjectsList() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
@@ -102,6 +283,7 @@ export default function ProjectsList() {
   const [dueDate, setDueDate] = useState("");
   const [status, setStatus] = useState<Project["status"]>("planejamento");
   const [priority, setPriority] = useState<Project["priority"]>("media");
+  const [placeAfterKey, setPlaceAfterKey] = useState(PLACE_LAST);
   const [error, setError] = useState<string | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<PendingFile[]>([]);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
@@ -115,6 +297,13 @@ export default function ProjectsList() {
   const updateProject = useUpdateProject();
   const deleteProject = useDeleteProject();
   const deleteAttachment = useDeleteAttachment();
+  const reorderPriorityRank = useReorderProjectPriorityRank();
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+  );
 
   const { data: editingAttachments = [], refetch: refetchEditingAttachments } =
     useListAttachments(
@@ -175,9 +364,35 @@ export default function ProjectsList() {
     );
   }, [editingProject, empresaOrgIds, entePublicoOrgIds, eligibleGestors, me?.id]);
 
-  const filteredProjects = projects?.filter((p) =>
-    p.title.toLowerCase().includes(filter.toLowerCase()),
-  );
+  const filteredProjects = useMemo(() => {
+    const filtered =
+      projects?.filter((p) =>
+        p.title.toLowerCase().includes(filter.toLowerCase()),
+      ) ?? [];
+    return sortProjectsByUrgencyRank(filtered);
+  }, [projects, filter]);
+
+  const peersInPriority = useMemo(() => {
+    return sortProjectsByUrgencyRank(
+      (projects ?? []).filter(
+        (project) =>
+          project.priority === priority &&
+          project.id !== editingProject?.id,
+      ),
+    );
+  }, [projects, priority, editingProject?.id]);
+
+  const nextUrgentProjectId = useMemo(() => {
+    const next = sortProjectsByUrgencyRank(projects ?? []).find(
+      (project) =>
+        project.priority === "urgente" &&
+        project.status !== "concluido" &&
+        project.status !== "cancelado",
+    );
+    return next?.id ?? null;
+  }, [projects]);
+
+  const canReorder = canCreate;
 
   function resetForm() {
     setTitle("");
@@ -188,6 +403,7 @@ export default function ProjectsList() {
     setDueDate("");
     setStatus("planejamento");
     setPriority("media");
+    setPlaceAfterKey(PLACE_LAST);
     setError(null);
     setEditingProject(null);
     setPendingAttachments([]);
@@ -207,6 +423,7 @@ export default function ProjectsList() {
     setDueDate(project.dueDate ? project.dueDate.slice(0, 10) : "");
     setStatus(project.status);
     setPriority(project.priority);
+    setPlaceAfterKey(PLACE_LAST);
     setPendingAttachments([]);
     setError(null);
     setDialogOpen(true);
@@ -228,6 +445,7 @@ export default function ProjectsList() {
     }
 
     if (editingProject) {
+      const priorityChanged = priority !== editingProject.priority;
       updateProject.mutate(
         {
           id: editingProject.id,
@@ -237,6 +455,12 @@ export default function ProjectsList() {
             status,
             priority,
             dueDate: dueDate || null,
+            ...(priorityChanged || placeAfterKey !== PLACE_LAST
+              ? {
+                  placeAfterProjectId:
+                    resolvePlaceAfterProjectId(placeAfterKey),
+                }
+              : {}),
           },
         },
         {
@@ -300,6 +524,8 @@ export default function ProjectsList() {
         entePublicoOrgIds,
         gestorUserId: Number(resolvedGestorUserId),
         dueDate: dueDate || undefined,
+        priority,
+        placeAfterProjectId: resolvePlaceAfterProjectId(placeAfterKey),
       },
       {
         onSuccess: async (project) => {
@@ -367,6 +593,92 @@ export default function ProjectsList() {
     );
   }
 
+  async function handleProjectDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || !canReorder || active.id === over.id) return;
+
+    const activeId = Number(active.id);
+    const overId = Number(over.id);
+    const activeProject = filteredProjects.find((project) => project.id === activeId);
+    const overProject = filteredProjects.find((project) => project.id === overId);
+    if (!activeProject || !overProject) return;
+    if (activeProject.priority !== overProject.priority) {
+      toast({
+        variant: "destructive",
+        title: "Reordenação inválida",
+        description: "Só é possível rearranjar projetos com a mesma urgência.",
+      });
+      return;
+    }
+
+    const group = filteredProjects.filter(
+      (project) => project.priority === activeProject.priority,
+    );
+    const oldIndex = group.findIndex((project) => project.id === activeId);
+    const newIndex = group.findIndex((project) => project.id === overId);
+    if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
+
+    const reordered = arrayMove(group, oldIndex, newIndex);
+    const orderedIds = reordered.map((project) => project.id);
+
+    queryClient.setQueryData<Project[]>(getListProjectsQueryKey(), (current) => {
+      if (!current) return current;
+      const byId = new Map(reordered.map((project, index) => [
+        project.id,
+        { ...project, priorityRank: index + 1 },
+      ]));
+      return sortProjectsByUrgencyRank(
+        current.map((project) => byId.get(project.id) ?? project),
+      );
+    });
+
+    try {
+      await reorderPriorityRank.mutateAsync({
+        projectId: activeId,
+        orderedIds,
+      });
+      queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+    } catch (err) {
+      queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+      toast({
+        variant: "destructive",
+        title: "Erro ao reordenar",
+        description:
+          err instanceof Error
+            ? err.message
+            : "Não foi possível salvar a nova ordem.",
+      });
+    }
+  }
+
+  function renderPlaceAfterSelect(id: string) {
+    return (
+      <div className="space-y-2">
+        <Label htmlFor={id}>Posição neste nível de urgência</Label>
+        <Select
+          value={placeAfterKey}
+          onValueChange={setPlaceAfterKey}
+        >
+          <SelectTrigger id={id}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={PLACE_FIRST}>1º (mais importante)</SelectItem>
+            {peersInPriority.map((peer) => (
+              <SelectItem key={peer.id} value={String(peer.id)}>
+                Depois de #{peer.priorityRank} — {peer.title}
+              </SelectItem>
+            ))}
+            <SelectItem value={PLACE_LAST}>Último deste nível</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Define a ordem só entre projetos com a mesma urgência ({priority}).
+        </p>
+      </div>
+    );
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "concluido":
@@ -418,7 +730,9 @@ export default function ProjectsList() {
       >
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Projetos</h1>
-          <p className="text-muted-foreground mt-1">Gerencie os projetos em andamento.</p>
+          <p className="text-muted-foreground mt-1">
+            Ordenados por urgência e ranking interno — arraste para reordenar dentro do mesmo nível.
+          </p>
         </div>
         {canCreate && (
           <Button onClick={openCreateDialog} className="transition-transform hover:scale-[1.03] active:scale-95">
@@ -452,7 +766,7 @@ export default function ProjectsList() {
             </Card>
           ))}
         </div>
-      ) : filteredProjects?.length === 0 ? (
+      ) : filteredProjects.length === 0 ? (
         <div className="text-center py-20 border border-dashed rounded-lg bg-card/50">
           <p className="text-muted-foreground">Nenhum projeto encontrado.</p>
           {canCreate && (
@@ -462,86 +776,41 @@ export default function ProjectsList() {
           )}
         </div>
       ) : (
-        <motion.div
-          className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
-          variants={gridContainerVariants}
-          initial="hidden"
-          animate="show"
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={(event) => {
+            void handleProjectDragEnd(event);
+          }}
         >
-          {filteredProjects?.map((project) => (
+          <SortableContext
+            items={filteredProjects.map((project) => project.id)}
+            strategy={rectSortingStrategy}
+          >
             <motion.div
-              key={project.id}
-              variants={gridItemVariants}
-              whileHover={{ y: -5 }}
-              className="h-full"
+              className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+              variants={gridContainerVariants}
+              initial="hidden"
+              animate="show"
             >
-            <Card className="relative h-full overflow-hidden transition-all duration-200 hover:shadow-lg hover:border-primary/50 flex flex-col">
-              <span
-                className={`absolute inset-x-0 top-0 h-1 ${getPriorityBar(project.priority)}`}
-                aria-hidden="true"
-              />
-              <Link href={`/projects/${project.id}`} className="block group flex-1">
-                <CardHeader>
-                  <div className="flex justify-between items-start gap-4">
-                    <CardTitle className="text-lg leading-tight group-hover:text-primary transition-colors line-clamp-2">
-                      {project.title}
-                    </CardTitle>
-                    <Badge variant="outline" className={`capitalize shrink-0 ${getStatusColor(project.status)}`}>
-                      {project.status.replace(/_/g, " ")}
-                    </Badge>
-                  </div>
-                  <CardDescription className="line-clamp-2 mt-2 h-10">
-                    {project.description || "Sem descrição."}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="pb-4">
-                  <div className="flex flex-col gap-2 text-sm text-muted-foreground">
-                    <div className="flex items-center justify-between">
-                      <span>Prazo</span>
-                      <span className={!project.dueDate ? "italic" : "font-medium text-foreground"}>
-                        {project.dueDate
-                          ? formatDatePtBR(project.dueDate)
-                          : "Não definido"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>Prioridade</span>
-                      <Badge variant="secondary" className={`capitalize border-none ${getPriorityColor(project.priority)}`}>
-                        {project.priority}
-                      </Badge>
-                    </div>
-                  </div>
-                </CardContent>
-              </Link>
-              {(canEdit || canDelete) && (
-                <div className="flex gap-2 px-6 pb-4 pt-0 border-t mt-auto">
-                  {canEdit && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => openEditDialog(project)}
-                    >
-                      <Pencil className="mr-1 h-3 w-3" />
-                      Editar
-                    </Button>
-                  )}
-                  {canDelete && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => setDeleteTarget(project)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  )}
-                </div>
-              )}
-            </Card>
+              {filteredProjects.map((project) => (
+                <SortableProjectCard
+                  key={project.id}
+                  project={project}
+                  canEdit={canEdit}
+                  canDelete={canDelete}
+                  canReorder={canReorder}
+                  isNextUrgent={project.id === nextUrgentProjectId}
+                  getStatusColor={getStatusColor}
+                  getPriorityColor={getPriorityColor}
+                  getPriorityBar={getPriorityBar}
+                  onEdit={() => openEditDialog(project)}
+                  onDelete={() => setDeleteTarget(project)}
+                />
+              ))}
             </motion.div>
-          ))}
-        </motion.div>
+          </SortableContext>
+        </DndContext>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={handleOpenChange}>
@@ -593,7 +862,13 @@ export default function ProjectsList() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="project-priority">Prioridade</Label>
-                  <Select value={priority} onValueChange={(value) => setPriority(value as Project["priority"])}>
+                  <Select
+                    value={priority}
+                    onValueChange={(value) => {
+                      setPriority(value as Project["priority"]);
+                      setPlaceAfterKey(PLACE_LAST);
+                    }}
+                  >
                     <SelectTrigger id="project-priority">
                       <SelectValue />
                     </SelectTrigger>
@@ -606,6 +881,7 @@ export default function ProjectsList() {
                   </Select>
                 </div>
               </div>
+              {renderPlaceAfterSelect("project-place-after")}
               <div className="space-y-2">
                 <Label htmlFor="project-due-date">Prazo (opcional)</Label>
                 <DateInput
@@ -793,9 +1069,30 @@ export default function ProjectsList() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="project-due-date">Prazo (opcional)</Label>
+                <Label htmlFor="create-project-priority">Prioridade</Label>
+                <Select
+                  value={priority}
+                  onValueChange={(value) => {
+                    setPriority(value as Project["priority"]);
+                    setPlaceAfterKey(PLACE_LAST);
+                  }}
+                >
+                  <SelectTrigger id="create-project-priority">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="baixa">Baixa</SelectItem>
+                    <SelectItem value="media">Média</SelectItem>
+                    <SelectItem value="alta">Alta</SelectItem>
+                    <SelectItem value="urgente">Urgente</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {renderPlaceAfterSelect("create-project-place-after")}
+              <div className="space-y-2">
+                <Label htmlFor="create-project-due-date">Prazo (opcional)</Label>
                 <DateInput
-                  id="project-due-date"
+                  id="create-project-due-date"
                   value={dueDate}
                   onChange={setDueDate}
                 />

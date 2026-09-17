@@ -12,30 +12,29 @@ declare global {
   }
 }
 
-export async function requireAuth(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> {
+export async function loadOptionalUser(req: Request): Promise<User | null> {
   const token = req.cookies?.[SESSION_COOKIE];
-  if (!token) {
-    res.status(401).json({ error: "Sessão expirada. Entre novamente." });
-    return;
-  }
+  if (!token) return null;
 
   const session = verifySession(token);
-  if (!session) {
-    res.status(401).json({ error: "Sessão expirada. Entre novamente." });
-    return;
-  }
+  if (!session) return null;
 
   const [user] = await db
     .select()
     .from(usersTable)
     .where(eq(usersTable.id, session.userId));
 
+  return user ?? null;
+}
+
+export async function requireAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const user = await loadOptionalUser(req);
   if (!user) {
-    res.status(401).json({ error: "Sessão inválida. Entre novamente." });
+    res.status(401).json({ error: "Sessão expirada. Entre novamente." });
     return;
   }
 

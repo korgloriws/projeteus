@@ -18,7 +18,11 @@ let _authTokenGetter: AuthTokenGetter | null = null;
 const SESSION_EXPIRED_EVENT = "projeteus:session-expired";
 
 function isAuthPublicPath(url: string): boolean {
-  return url.includes("/api/auth/login") || url.includes("/api/auth/register");
+  return (
+    url.includes("/api/auth/login") ||
+    url.includes("/api/auth/register") ||
+    url.includes("/api/invites/")
+  );
 }
 
 export function notifySessionExpired(): void {

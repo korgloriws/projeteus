@@ -15,6 +15,7 @@ import ProjectDetail from "./pages/projects/detail";
 import OrganizationsList from "./pages/organizations/index";
 import TeamList from "./pages/team/index";
 import Settings from "./pages/settings/index";
+import InvitePage from "./pages/invite";
 import NotFound from "./pages/not-found";
 
 function HomeRedirect() {
@@ -63,6 +64,7 @@ function AppRoutes() {
       <Route path="/" component={HomeRedirect} />
       <Route path="/sign-in" component={SignInPage} />
       <Route path="/sign-up" component={SignUpPage} />
+      <Route path="/invite/:token" component={InvitePage} />
       <Route path="/dashboard"><ProtectedRoute component={Dashboard} /></Route>
       <Route path="/projects"><ProtectedRoute component={ProjectsList} /></Route>
       <Route path="/projects/:id"><ProtectedRoute component={ProjectDetail} /></Route>

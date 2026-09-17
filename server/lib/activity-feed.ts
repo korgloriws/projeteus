@@ -10,6 +10,7 @@ import {
   usersTable,
   type User,
 } from "@db";
+import { loadTaskAssigneeIdsForTasks } from "./task-assignees";
 
 export type ActivityType =
   | "project_created"
@@ -32,6 +33,7 @@ export type ActivityItem = {
   taskTitle: string | null;
   actorUserId: number;
   assigneeUserId: number | null;
+  assigneeUserIds: number[];
   summary: string;
   createdAt: Date;
 };
@@ -93,11 +95,14 @@ function matchesFilters(
   if (filters.projectId !== undefined && item.projectId !== filters.projectId) {
     return false;
   }
-  if (
-    filters.assigneeUserId !== undefined &&
-    item.assigneeUserId !== filters.assigneeUserId
-  ) {
-    return false;
+  if (filters.assigneeUserId !== undefined) {
+    const ids =
+      item.assigneeUserIds.length > 0
+        ? item.assigneeUserIds
+        : item.assigneeUserId != null
+          ? [item.assigneeUserId]
+          : [];
+    if (!ids.includes(filters.assigneeUserId)) return false;
   }
   if (filters.taskId !== undefined && item.taskId !== filters.taskId) {
     return false;
@@ -122,6 +127,7 @@ function isVisibleToUser(
 
   if (item.actorUserId === user.id) return true;
   if (item.assigneeUserId === user.id) return true;
+  if (item.assigneeUserIds.includes(user.id)) return true;
   if (item.type === "comment_created" && item.actorUserId === user.id) {
     return true;
   }
@@ -174,6 +180,9 @@ export async function buildUserActivityFeed(
   const stageTitleById = new Map(stages.map((stage) => [stage.id, stage.name]));
   const stageMemberIds = new Set(stageMemberRows.map((row) => row.stageId));
   const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const taskAssigneeMap = await loadTaskAssigneeIdsForTasks(
+    tasks.map((task) => task.id),
+  );
 
   const items: ActivityItem[] = [];
 
@@ -189,6 +198,7 @@ export async function buildUserActivityFeed(
       taskTitle: null,
       actorUserId: project.createdByUserId ?? 0,
       assigneeUserId: null,
+      assigneeUserIds: [],
       summary: `Projeto "${project.title}" foi criado`,
       createdAt: project.createdAt,
     });
@@ -206,6 +216,7 @@ export async function buildUserActivityFeed(
       taskTitle: null,
       actorUserId: 0,
       assigneeUserId: null,
+      assigneeUserIds: [],
       summary: `Etapa "${stage.name}" foi criada`,
       createdAt: stage.createdAt,
     });
@@ -214,6 +225,7 @@ export async function buildUserActivityFeed(
   for (const task of tasks) {
     const stageTitle = stageTitleById.get(task.stageId) ?? null;
     const isCompleted = task.status === "concluida";
+    const assigneeUserIds = taskAssigneeMap.get(task.id) ?? [];
 
     items.push({
       id: `task-${task.id}-${isCompleted ? "completed" : "created"}`,
@@ -224,8 +236,9 @@ export async function buildUserActivityFeed(
       stageTitle,
       taskId: task.id,
       taskTitle: task.title,
-      actorUserId: task.assigneeUserId ?? 0,
-      assigneeUserId: task.assigneeUserId ?? null,
+      actorUserId: assigneeUserIds[0] ?? task.assigneeUserId ?? 0,
+      assigneeUserId: assigneeUserIds[0] ?? task.assigneeUserId ?? null,
+      assigneeUserIds,
       summary: isCompleted
         ? `Tarefa "${task.title}" foi concluída`
         : `Tarefa "${task.title}" foi criada`,
@@ -236,6 +249,9 @@ export async function buildUserActivityFeed(
   for (const comment of comments) {
     if (!comment.projectId) continue;
     const relatedTask = comment.taskId ? taskById.get(comment.taskId) : null;
+    const relatedAssignees = relatedTask
+      ? (taskAssigneeMap.get(relatedTask.id) ?? [])
+      : [];
 
     items.push({
       id: `comment-${comment.id}`,
@@ -249,7 +265,8 @@ export async function buildUserActivityFeed(
       taskId: comment.taskId ?? null,
       taskTitle: relatedTask?.title ?? null,
       actorUserId: comment.authorUserId,
-      assigneeUserId: relatedTask?.assigneeUserId ?? null,
+      assigneeUserId: relatedAssignees[0] ?? relatedTask?.assigneeUserId ?? null,
+      assigneeUserIds: relatedAssignees,
       summary: "Novo comentário",
       createdAt: comment.createdAt,
     });
@@ -292,11 +309,21 @@ export async function getActivityFilterOptions(user: User) {
       .where(inArray(projectMembersTable.projectId, accessibleProjectIds)),
   ]);
 
+  const taskAssigneeMap = await loadTaskAssigneeIdsForTasks(
+    tasks.map((task) => task.id),
+  );
+
   const assigneeMap = new Map<number, string>();
   for (const row of members) {
     assigneeMap.set(row.user.id, row.user.name);
   }
   for (const task of tasks) {
+    const ids = taskAssigneeMap.get(task.id) ?? [];
+    for (const id of ids) {
+      if (!assigneeMap.has(id)) {
+        assigneeMap.set(id, `Usuário ${id}`);
+      }
+    }
     if (task.assigneeUserId && !assigneeMap.has(task.assigneeUserId)) {
       assigneeMap.set(task.assigneeUserId, `Usuário ${task.assigneeUserId}`);
     }
@@ -318,6 +345,7 @@ export async function getActivityFilterOptions(user: User) {
       projectId: task.projectId,
       stageId: task.stageId,
       assigneeUserId: task.assigneeUserId,
+      assigneeUserIds: taskAssigneeMap.get(task.id) ?? [],
     })),
     assignees: Array.from(assigneeMap.entries()).map(([id, name]) => ({
       id,

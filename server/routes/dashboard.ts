@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db, projectMembersTable, projectsTable, tasksTable } from "@db";
 import { requireAuth } from "../middlewares/requireAuth";
@@ -8,6 +8,7 @@ import {
   getActivityFilterOptions,
 } from "../lib/activity-feed";
 import { buildMyTasks, getMyTasksFilterOptions } from "../lib/my-tasks";
+import { loadTaskAssigneeIdsForTasks } from "../lib/task-assignees";
 
 const router: IRouter = Router();
 
@@ -43,6 +44,7 @@ router.get("/dashboard/summary", requireAuth, async (req, res): Promise<void> =>
             entePublicoOrgId: projectsTable.entePublicoOrgId,
             status: projectsTable.status,
             priority: projectsTable.priority,
+            priorityRank: projectsTable.priorityRank,
             dueDate: projectsTable.dueDate,
             createdByUserId: projectsTable.createdByUserId,
             createdAt: projectsTable.createdAt,
@@ -55,23 +57,26 @@ router.get("/dashboard/summary", requireAuth, async (req, res): Promise<void> =>
           .where(eq(projectMembersTable.userId, user.id));
 
   const projectIds = projects.map((project) => project.id);
-  const tasks =
+  const projectTasks =
     projectIds.length === 0
       ? []
-      : user.role === "admin"
-        ? await db
-            .select()
-            .from(tasksTable)
-            .where(inArray(tasksTable.projectId, projectIds))
-        : await db
-            .select()
-            .from(tasksTable)
-            .where(
-              and(
-                inArray(tasksTable.projectId, projectIds),
-                eq(tasksTable.assigneeUserId, user.id),
-              ),
-            );
+      : await db
+          .select()
+          .from(tasksTable)
+          .where(inArray(tasksTable.projectId, projectIds));
+
+  let tasks = projectTasks;
+  if (user.role !== "admin") {
+    const assigneeMap = await loadTaskAssigneeIdsForTasks(
+      projectTasks.map((task) => task.id),
+    );
+    tasks = projectTasks.filter((task) => {
+      const assigneeIds = assigneeMap.get(task.id) ?? [];
+      return (
+        assigneeIds.includes(user.id) || task.assigneeUserId === user.id
+      );
+    });
+  }
 
   const today = new Date().toISOString().slice(0, 10);
 

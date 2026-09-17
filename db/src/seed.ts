@@ -3,12 +3,19 @@ import bcrypt from "bcryptjs";
 import { sql } from "drizzle-orm";
 import { client, db } from "./index";
 import {
-  commentsTable,
   attachmentsTable,
+  commentsTable,
+  notificationsTable,
+  organizationPositionsTable,
+  organizationSectorsTable,
   organizationsTable,
+  projectInvitesTable,
   projectMembersTable,
+  projectOrganizationsTable,
   projectsTable,
+  stageMembersTable,
   stagesTable,
+  taskAssigneesTable,
   tasksTable,
   usersTable,
 } from "./schema";
@@ -18,13 +25,21 @@ const adminName = process.env.SEED_ADMIN_NAME ?? "Mateus";
 const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? "projeteus";
 
 async function seed() {
+  // Filhas → pais (FK), cobrindo todas as tabelas do schema atual.
+  await db.delete(notificationsTable);
   await db.delete(attachmentsTable);
   await db.delete(commentsTable);
+  await db.delete(taskAssigneesTable);
   await db.delete(tasksTable);
+  await db.delete(stageMembersTable);
   await db.delete(stagesTable);
+  await db.delete(projectInvitesTable);
   await db.delete(projectMembersTable);
+  await db.delete(projectOrganizationsTable);
   await db.delete(projectsTable);
   await db.delete(usersTable);
+  await db.delete(organizationPositionsTable);
+  await db.delete(organizationSectorsTable);
   await db.delete(organizationsTable);
   await db.run(sql`DELETE FROM sqlite_sequence`);
 

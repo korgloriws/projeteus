@@ -29,6 +29,8 @@ export const projectsTable = sqliteTable("projects", {
   priority: text("priority", { enum: projectPriorityValues })
     .notNull()
     .default("media"),
+  /** Ordem dentro do mesmo `priority` (1 = mais importante do grupo). */
+  priorityRank: integer("priority_rank").notNull().default(0),
   empresaOrgId: integer("empresa_org_id")
     .notNull()
     .references(() => organizationsTable.id, { onDelete: "cascade" }),

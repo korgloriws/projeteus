@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -6,11 +6,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
+function readSearchParam(key: string): string {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get(key) ?? "";
+}
+
+function safeNextPath(raw: string): string {
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/dashboard";
+  return raw;
+}
+
 export default function SignUpPage() {
   const [, setLocation] = useLocation();
   const { register } = useAuth();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const nextPath = useMemo(
+    () => safeNextPath(readSearchParam("next") || "/dashboard"),
+    [],
+  );
+  const [name, setName] = useState(() => readSearchParam("name"));
+  const [email, setEmail] = useState(() => readSearchParam("email"));
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -22,7 +36,11 @@ export default function SignUpPage() {
 
     try {
       await register(name, email, password);
-      setLocation("/dashboard");
+      const destination =
+        nextPath.startsWith("/invite/")
+          ? `${nextPath}${nextPath.includes("?") ? "&" : "?"}autoAccept=1`
+          : nextPath;
+      setLocation(destination);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível criar a conta");
     } finally {
@@ -30,12 +48,23 @@ export default function SignUpPage() {
     }
   }
 
+  const signInHref =
+    nextPath !== "/dashboard"
+      ? `/sign-in?next=${encodeURIComponent(nextPath)}${
+          email ? `&email=${encodeURIComponent(email)}` : ""
+        }`
+      : "/sign-in";
+
   return (
     <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>Criar conta</CardTitle>
-          <CardDescription>Cadastre-se para começar a usar o ProjeTeus.</CardDescription>
+          <CardDescription>
+            {nextPath.startsWith("/invite/")
+              ? "Cadastre-se para aceitar o convite do projeto."
+              : "Cadastre-se para começar a usar o ProjeTeus."}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -73,12 +102,12 @@ export default function SignUpPage() {
             </div>
             {error ? <p className="text-sm text-red-500">{error}</p> : null}
             <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? "Criando conta..." : "Criar conta"}
+              {isSubmitting ? "Criando..." : "Criar conta"}
             </Button>
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
             Já tem conta?{" "}
-            <Link href="/sign-in" className="text-primary hover:underline">
+            <Link href={signInHref} className="text-primary hover:underline">
               Entrar
             </Link>
           </p>

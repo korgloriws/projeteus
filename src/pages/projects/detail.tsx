@@ -48,7 +48,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, AlertCircle, MessageSquare, Send, AlertTriangle, Plus, Users, Pencil, Trash2, MoreHorizontal, CheckCircle2, Paperclip, Undo2, ShieldCheck } from "lucide-react";
+import { Calendar, AlertCircle, MessageSquare, Send, AlertTriangle, Plus, Users, Pencil, Trash2, MoreHorizontal, CheckCircle2, Paperclip, Undo2, ShieldCheck, UserPlus } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { AssignmentChecklist } from "@/components/AssignmentChecklist";
 import {
@@ -100,6 +100,7 @@ import {
   PartySideBadge,
   resolvePartySide,
 } from "@/components/projects/ProjectDualPartyPanel";
+import { InviteProjectDialog } from "@/components/projects/InviteProjectDialog";
 import { taskDndId } from "@/lib/board-order";
 import {
   isAwaitingValidation,
@@ -252,6 +253,7 @@ export default function ProjectDetail() {
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [removingAttachmentId, setRemovingAttachmentId] = useState<number | null>(null);
   const [projectEditOpen, setProjectEditOpen] = useState(false);
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [projectTitle, setProjectTitle] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
   const [projectStatus, setProjectStatus] = useState<Project["status"]>("planejamento");
@@ -1156,12 +1158,24 @@ export default function ProjectDetail() {
               <Badge variant="outline" className={`capitalize ${priorityMeta.className}`}>
                 {priorityMeta.label}
               </Badge>
+              <Badge variant="outline" className="font-mono tabular-nums">
+                #{project.priorityRank ?? "—"}
+              </Badge>
             </div>
             <p className="text-muted-foreground">{project.description}</p>
           </div>
           <div className="flex flex-col items-start gap-2 text-sm text-muted-foreground sm:items-end shrink-0">
             {canManageTasks && (
               <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setInviteDialogOpen(true)}
+                  className="transition-transform hover:scale-[1.03] active:scale-95"
+                >
+                  <UserPlus className="mr-1 h-3 w-3" />
+                  Convidar
+                </Button>
                 <Button
                   size="sm"
                   variant="outline"
@@ -2276,6 +2290,12 @@ export default function ProjectDetail() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <InviteProjectDialog
+        projectId={project.id}
+        open={inviteDialogOpen}
+        onOpenChange={setInviteDialogOpen}
+      />
 
       <ConfirmDeleteDialog
         open={Boolean(deleteTarget)}

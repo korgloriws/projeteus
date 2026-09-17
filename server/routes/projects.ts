@@ -1,20 +1,31 @@
 import { Router, type IRouter } from "express";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod/v4";
-import { db, projectMembersTable, projectsTable, stagesTable, tasksTable, usersTable } from "@db";
+import {
+  db,
+  projectMembersTable,
+  projectsTable,
+  stagesTable,
+  tasksTable,
+  usersTable,
+  type Project,
+} from "@db";
 import {
   CreateProjectBody,
   DeleteProjectParams,
   GetProjectParams,
   GetProjectSummaryParams,
   ListProjectsQueryParams,
-  ListProjectsResponse,
   UpdateProjectBody,
   UpdateProjectParams,
 } from "@api/zod";
 import { requireAuth, requireRole } from "../middlewares/requireAuth";
 import { toDateOnly } from "../lib/dates";
-import { isEligibleProjectGestorForOrganizations, userHasProjectAccess } from "../lib/project-members";
+import {
+  isEligibleProjectGestorForOrganizations,
+  isProjectGestor,
+  userHasProjectAccess,
+} from "../lib/project-members";
 import {
   getProjectOrganizationsByType,
   syncProjectOrganizations,
@@ -30,9 +41,26 @@ import {
   notifyProjectMembers,
   runNotify,
 } from "../lib/notifications";
+import {
+  compareProjectsByUrgencyRank,
+  ensurePriorityRanksBackfilled,
+  moveProjectToPriority,
+  placeProjectInPriorityGroup,
+  renumberAfterProjectRemoved,
+  reorderPriorityGroup,
+  type ProjectPriority,
+} from "../lib/project-priority-rank";
 import { serializeMembers } from "./project-members";
 
 const router: IRouter = Router();
+
+const placeAfterSchema = z.object({
+  placeAfterProjectId: z.number().nullable().optional(),
+});
+
+const reorderPriorityRankBody = z.object({
+  orderedIds: z.array(z.number()).min(1),
+});
 
 async function serializeProject(project: typeof projectsTable.$inferSelect) {
   const { empresaOrgIds, entePublicoOrgIds } =
@@ -44,12 +72,23 @@ async function serializeProject(project: typeof projectsTable.$inferSelect) {
   };
 }
 
+async function canReorderProjectPriority(
+  user: NonNullable<Express.Request["appUser"]>,
+  project: Project,
+): Promise<boolean> {
+  if (user.role === "admin") return true;
+  if (user.role === "gestor") return true;
+  return isProjectGestor(user.id, project.id);
+}
+
 router.get("/projects", requireAuth, async (req, res): Promise<void> => {
   const query = ListProjectsQueryParams.safeParse(req.query);
   if (!query.success) {
     res.status(400).json({ error: query.error.message });
     return;
   }
+
+  await ensurePriorityRanksBackfilled();
 
   const rows = await db
     .select()
@@ -58,8 +97,7 @@ router.get("/projects", requireAuth, async (req, res): Promise<void> => {
       query.data.status
         ? eq(projectsTable.status, query.data.status)
         : undefined,
-    )
-    .orderBy(projectsTable.createdAt);
+    );
 
   const memberships =
     req.appUser!.role === "admin"
@@ -74,6 +112,8 @@ router.get("/projects", requireAuth, async (req, res): Promise<void> => {
     req.appUser!.role === "admin"
       ? rows
       : rows.filter((project) => memberProjectIds.has(project.id));
+
+  visible.sort(compareProjectsByUrgencyRank);
 
   res.json(await Promise.all(visible.map((project) => serializeProject(project))));
 });
@@ -96,6 +136,8 @@ router.post(
         entePublicoOrgIds: z.array(z.number()).min(1).optional(),
       })
       .safeParse(req.body);
+
+    const placement = placeAfterSchema.safeParse(req.body);
 
     const empresaOrgIds =
       orgSelection.success && orgSelection.data.empresaOrgIds
@@ -143,10 +185,15 @@ router.post(
       return;
     }
 
+    const priority = (parsed.data.priority ?? "media") as ProjectPriority;
+    const { placeAfterProjectId: _place, ...createFields } = parsed.data;
+
     const [project] = await db
       .insert(projectsTable)
       .values({
-        ...parsed.data,
+        ...createFields,
+        priority,
+        priorityRank: 0,
         empresaOrgId: empresaOrgIds[0]!,
         entePublicoOrgId: entePublicoOrgIds[0]!,
         dueDate: toDateOnly(parsed.data.dueDate),
@@ -155,6 +202,14 @@ router.post(
       .returning();
 
     await syncProjectOrganizations(project.id, validatedOrgs.organizationIds);
+
+    await placeProjectInPriorityGroup({
+      projectId: project.id,
+      priority,
+      placeAfterProjectId: placement.success
+        ? placement.data.placeAfterProjectId
+        : _place,
+    });
 
     await db.insert(projectMembersTable).values({
       projectId: project.id,
@@ -173,7 +228,12 @@ router.post(
       }),
     );
 
-    res.status(201).json(await serializeProject(project));
+    const [fresh] = await db
+      .select()
+      .from(projectsTable)
+      .where(eq(projectsTable.id, project.id));
+
+    res.status(201).json(await serializeProject(fresh ?? project));
   },
 );
 
@@ -247,6 +307,8 @@ router.patch("/projects/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  const placement = placeAfterSchema.safeParse(req.body);
+
   const [existing] = await db
     .select()
     .from(projectsTable)
@@ -265,11 +327,42 @@ router.patch("/projects/:id", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  const nextPriority = (parsed.data.priority ??
+    existing.priority) as ProjectPriority;
+  const priorityChanged = nextPriority !== existing.priority;
+  const hasExplicitPlacement =
+    placement.success && placement.data.placeAfterProjectId !== undefined;
+
+  const { priority: _ignoredPriority, placeAfterProjectId: _place, ...updateFields } =
+    parsed.data;
+
   const [project] = await db
     .update(projectsTable)
-    .set({ ...parsed.data, dueDate: toDateOnly(parsed.data.dueDate) })
+    .set({
+      ...updateFields,
+      dueDate: toDateOnly(parsed.data.dueDate),
+      ...(priorityChanged ? { priority: nextPriority } : {}),
+    })
     .where(eq(projectsTable.id, params.data.id))
     .returning();
+
+  if (priorityChanged || hasExplicitPlacement) {
+    await moveProjectToPriority({
+      projectId: project.id,
+      fromPriority: existing.priority as ProjectPriority,
+      toPriority: nextPriority,
+      placeAfterProjectId: hasExplicitPlacement
+        ? placement.data!.placeAfterProjectId
+        : priorityChanged
+          ? undefined
+          : placement.data?.placeAfterProjectId,
+    });
+  }
+
+  const [fresh] = await db
+    .select()
+    .from(projectsTable)
+    .where(eq(projectsTable.id, project.id));
 
   await runNotify(
     notifyProjectMembers(
@@ -277,7 +370,7 @@ router.patch("/projects/:id", requireAuth, async (req, res): Promise<void> => {
         actorUserId: req.appUser!.id,
         type: "project_updated",
         title: "Projeto atualizado",
-        message: `${req.appUser!.name} atualizou o projeto "${project.title}".`,
+        message: `${req.appUser!.name} atualizou o projeto "${(fresh ?? project).title}".`,
         projectId: project.id,
         link: `/projects/${project.id}`,
       },
@@ -285,8 +378,70 @@ router.patch("/projects/:id", requireAuth, async (req, res): Promise<void> => {
     ),
   );
 
-  res.json(project);
+  res.json(await serializeProject(fresh ?? project));
 });
+
+router.patch(
+  "/projects/:id/priority-rank",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const params = UpdateProjectParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+
+    const parsed = reorderPriorityRankBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    const [project] = await db
+      .select()
+      .from(projectsTable)
+      .where(eq(projectsTable.id, params.data.id));
+
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    if (!(await canReorderProjectPriority(req.appUser!, project))) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    if (!parsed.data.orderedIds.includes(project.id)) {
+      res.status(400).json({
+        error: "A lista de ordenação precisa incluir o projeto sendo movido.",
+      });
+      return;
+    }
+
+    try {
+      await reorderPriorityGroup({
+        priority: project.priority as ProjectPriority,
+        orderedIds: parsed.data.orderedIds,
+      });
+    } catch (error) {
+      res.status(400).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Não foi possível reordenar os projetos.",
+      });
+      return;
+    }
+
+    const [fresh] = await db
+      .select()
+      .from(projectsTable)
+      .where(eq(projectsTable.id, project.id));
+
+    res.json(await serializeProject(fresh ?? project));
+  },
+);
 
 router.delete(
   "/projects/:id",
@@ -308,6 +463,8 @@ router.delete(
       res.status(404).json({ error: "Project not found" });
       return;
     }
+
+    await renumberAfterProjectRemoved(project.priority as ProjectPriority);
 
     res.sendStatus(204);
   },

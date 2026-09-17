@@ -14,6 +14,8 @@ export interface ProjectInput {
   description?: string;
   status?: ProjectStatus;
   priority?: ProjectPriority;
+  /** null = primeiro do grupo; omitido = último; number = após esse projeto. */
+  placeAfterProjectId?: number | null;
   empresaOrgId: number;
   entePublicoOrgId: number;
   dueDate?: Date;

@@ -13,6 +13,7 @@ import commentsRouter from "./comments";
 import attachmentsRouter from "./attachments";
 import dashboardRouter from "./dashboard";
 import notificationsRouter from "./notifications";
+import invitesRouter from "./invites";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(commentsRouter);
 router.use(attachmentsRouter);
 router.use(dashboardRouter);
 router.use(notificationsRouter);
+router.use(invitesRouter);
 
 export default router;

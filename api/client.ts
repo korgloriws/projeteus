@@ -1,6 +1,7 @@
 export * from "./generated/react/api";
 export * from "./generated/react/api.schemas";
 export * from "./attachments";
+export * from "./invites";
 export * from "./members";
 export * from "./notifications";
 export * from "./organizations";

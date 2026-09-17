@@ -47,6 +47,39 @@ export interface CreateProjectInput extends ProjectInput {
   entePublicoOrgIds?: number[];
 }
 
+export async function reorderProjectPriorityRank(
+  projectId: number,
+  orderedIds: number[],
+  options?: RequestInit,
+): Promise<Project> {
+  return customFetch<Project>(`/api/projects/${projectId}/priority-rank`, {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify({ orderedIds }),
+  });
+}
+
+export function useReorderProjectPriorityRank<TError = ErrorType<unknown>>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof reorderProjectPriorityRank>>,
+      TError,
+      { projectId: number; orderedIds: number[] }
+    >;
+  },
+): UseMutationResult<
+  Awaited<ReturnType<typeof reorderProjectPriorityRank>>,
+  TError,
+  { projectId: number; orderedIds: number[] }
+> {
+  return useMutation({
+    mutationFn: ({ projectId, orderedIds }) =>
+      reorderProjectPriorityRank(projectId, orderedIds),
+    ...options?.mutation,
+  });
+}
+
 export async function createProjectWithGestor(
   input: CreateProjectInput,
   options?: RequestInit,

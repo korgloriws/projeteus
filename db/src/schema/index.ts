@@ -5,6 +5,7 @@ export * from "./users";
 export * from "./projects";
 export * from "./project-organizations";
 export * from "./project-members";
+export * from "./project-invites";
 export * from "./stages";
 export * from "./stage-members";
 export * from "./tasks";

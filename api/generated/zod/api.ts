@@ -198,6 +198,7 @@ export const ListProjectsResponseItem = zod.object({
   "description": zod.string().nullish(),
   "status": zod.enum(['planejamento', 'em_andamento', 'pausado', 'concluido', 'cancelado']),
   "priority": zod.enum(['baixa', 'media', 'alta', 'urgente']),
+  "priorityRank": zod.number(),
   "empresaOrgId": zod.number(),
   "entePublicoOrgId": zod.number(),
   "createdByUserId": zod.number(),
@@ -218,6 +219,7 @@ export const CreateProjectBody = zod.object({
   "description": zod.string().optional(),
   "status": zod.enum(['planejamento', 'em_andamento', 'pausado', 'concluido', 'cancelado']).optional(),
   "priority": zod.enum(['baixa', 'media', 'alta', 'urgente']).optional(),
+  "placeAfterProjectId": zod.number().nullish(),
   "empresaOrgId": zod.number(),
   "entePublicoOrgId": zod.number(),
   "dueDate": zod.coerce.date().optional()
@@ -229,6 +231,7 @@ export const CreateProjectResponse = zod.object({
   "description": zod.string().nullish(),
   "status": zod.enum(['planejamento', 'em_andamento', 'pausado', 'concluido', 'cancelado']),
   "priority": zod.enum(['baixa', 'media', 'alta', 'urgente']),
+  "priorityRank": zod.number(),
   "empresaOrgId": zod.number(),
   "entePublicoOrgId": zod.number(),
   "createdByUserId": zod.number(),
@@ -251,6 +254,7 @@ export const GetProjectResponse = zod.object({
   "description": zod.string().nullish(),
   "status": zod.enum(['planejamento', 'em_andamento', 'pausado', 'concluido', 'cancelado']),
   "priority": zod.enum(['baixa', 'media', 'alta', 'urgente']),
+  "priorityRank": zod.number(),
   "empresaOrgId": zod.number(),
   "entePublicoOrgId": zod.number(),
   "createdByUserId": zod.number(),
@@ -296,6 +300,7 @@ export const UpdateProjectBody = zod.object({
   "description": zod.string().nullish(),
   "status": zod.enum(['planejamento', 'em_andamento', 'pausado', 'concluido', 'cancelado']).optional(),
   "priority": zod.enum(['baixa', 'media', 'alta', 'urgente']).optional(),
+  "placeAfterProjectId": zod.number().nullish(),
   "dueDate": zod.coerce.date().nullish()
 })
 
@@ -305,6 +310,7 @@ export const UpdateProjectResponse = zod.object({
   "description": zod.string().nullish(),
   "status": zod.enum(['planejamento', 'em_andamento', 'pausado', 'concluido', 'cancelado']),
   "priority": zod.enum(['baixa', 'media', 'alta', 'urgente']),
+  "priorityRank": zod.number(),
   "empresaOrgId": zod.number(),
   "entePublicoOrgId": zod.number(),
   "createdByUserId": zod.number(),

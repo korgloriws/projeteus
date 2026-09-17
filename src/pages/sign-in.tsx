@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -6,10 +6,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
+function readSearchParam(key: string): string {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get(key) ?? "";
+}
+
+function safeNextPath(raw: string): string {
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/dashboard";
+  return raw;
+}
+
 export default function SignInPage() {
   const [, setLocation] = useLocation();
   const { login } = useAuth();
-  const [email, setEmail] = useState("");
+  const nextPath = useMemo(
+    () => safeNextPath(readSearchParam("next") || "/dashboard"),
+    [],
+  );
+  const [email, setEmail] = useState(() => readSearchParam("email"));
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -21,13 +35,24 @@ export default function SignInPage() {
 
     try {
       await login(email, password);
-      setLocation("/dashboard");
+      const destination =
+        nextPath.startsWith("/invite/")
+          ? `${nextPath}${nextPath.includes("?") ? "&" : "?"}autoAccept=1`
+          : nextPath;
+      setLocation(destination);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível entrar");
     } finally {
       setIsSubmitting(false);
     }
   }
+
+  const signUpHref =
+    nextPath !== "/dashboard"
+      ? `/sign-up?next=${encodeURIComponent(nextPath)}${
+          email ? `&email=${encodeURIComponent(email)}` : ""
+        }`
+      : "/sign-up";
 
   return (
     <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
@@ -68,7 +93,7 @@ export default function SignInPage() {
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
             Não tem conta?{" "}
-            <Link href="/sign-up" className="text-primary hover:underline">
+            <Link href={signUpHref} className="text-primary hover:underline">
               Criar conta
             </Link>
           </p>

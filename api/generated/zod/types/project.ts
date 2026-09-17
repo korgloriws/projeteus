@@ -15,6 +15,8 @@ export interface Project {
   description?: string | null;
   status: ProjectStatus;
   priority: ProjectPriority;
+  /** Ordem dentro da mesma urgência (1 = mais importante). */
+  priorityRank: number;
   empresaOrgId: number;
   entePublicoOrgId: number;
   createdByUserId: number;

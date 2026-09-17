@@ -15,6 +15,8 @@ export interface ProjectUpdate {
   description?: string | null;
   status?: ProjectStatus;
   priority?: ProjectPriority;
+  /** null = primeiro do grupo; number = após esse projeto. */
+  placeAfterProjectId?: number | null;
   /** @nullable */
   dueDate?: Date | null;
 }

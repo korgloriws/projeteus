@@ -2,6 +2,7 @@ import "dotenv/config";
 
 import app from "./app";
 import { logger } from "./lib/logger";
+import { ensurePriorityRanksBackfilled } from "./lib/project-priority-rank";
 
 const rawPort = process.env["PORT"] ?? "8080";
 
@@ -10,6 +11,9 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
+
+await ensurePriorityRanksBackfilled();
+logger.info("Project priority ranks synchronized");
 
 app.listen(port, (err) => {
   if (err) {

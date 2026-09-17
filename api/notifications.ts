@@ -27,6 +27,8 @@ export type NotificationType =
   | "attachment_uploaded"
   | "project_updated"
   | "project_gestor_assigned"
+  | "project_invite"
+  | "project_invite_accepted"
   | "member_added";
 
 export interface NotificationItem {

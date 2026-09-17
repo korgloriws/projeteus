@@ -107,6 +107,8 @@ export interface Project {
   description?: string | null;
   status: ProjectStatus;
   priority: ProjectPriority;
+  /** Ordem dentro da mesma urgência (1 = mais importante). */
+  priorityRank: number;
   empresaOrgId: number;
   entePublicoOrgId: number;
   createdByUserId: number;
@@ -121,6 +123,8 @@ export interface ProjectInput {
   description?: string;
   status?: ProjectStatus;
   priority?: ProjectPriority;
+  /** null = primeiro; omitido = último; number = após esse projeto. */
+  placeAfterProjectId?: number | null;
   empresaOrgId: number;
   entePublicoOrgId: number;
   dueDate?: string;
@@ -133,6 +137,8 @@ export interface ProjectUpdate {
   description?: string | null;
   status?: ProjectStatus;
   priority?: ProjectPriority;
+  /** null = primeiro; number = após esse projeto. */
+  placeAfterProjectId?: number | null;
   /** @nullable */
   dueDate?: string | null;
 }

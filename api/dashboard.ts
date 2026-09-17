@@ -15,6 +15,7 @@ export interface ActivityItem {
   taskTitle: string | null;
   actorUserId: number;
   assigneeUserId: number | null;
+  assigneeUserIds?: number[];
   summary: string;
   createdAt: string;
 }
@@ -38,6 +39,7 @@ export interface ActivityFilterOptions {
     projectId: number;
     stageId: number;
     assigneeUserId: number | null;
+    assigneeUserIds?: number[];
   }[];
   assignees: { id: number; name: string }[];
 }
