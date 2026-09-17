@@ -41,11 +41,16 @@ type InviteProjectDialogProps = {
 };
 
 function absoluteInviteUrl(invite: { link: string; url?: string }): string {
+  // Preferir a origem atual do navegador (ex.: http://srv….hstgr.cloud:3020).
+  // Se usarmos WEB_ORIGIN sem a porta :3020, o link cai na porta 80 — onde a
+  // Hostinger costuma ter outro processo Vite e aparece o erro allowedHosts.
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return `${window.location.origin}${invite.link}`;
+  }
   if (invite.url && /^https?:\/\//i.test(invite.url)) {
     return invite.url;
   }
-  if (typeof window === "undefined") return invite.link;
-  return `${window.location.origin}${invite.link}`;
+  return invite.link;
 }
 
 function shareMessage(invite: ProjectInviteItem, projectTitle?: string): string {

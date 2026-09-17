@@ -8,9 +8,13 @@ services:
     environment:
       NODE_ENV: production
       PORT: "8080"
+      # Porta pública no host — usada para montar links sem cair na porta 80.
+      APP_PORT: "${APP_PORT:-3020}"
       # Banco SQLite persistido no volume abaixo.
       DATABASE_URL: file:./data/projeteus.db
-    # Exposto direto numa porta do host (padrão dos demais sistemas da VPS).
+      # Se o Vite (dev/preview) rodar na VPS, libera o hostname Hostinger.
+      VITE_ALLOWED_HOSTS: "srv1176791.hstgr.cloud,.hstgr.cloud"
+      __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: "srv1176791.hstgr.cloud"    # Exposto direto numa porta do host (padrão dos demais sistemas da VPS).
     # Troque a porta definindo APP_PORT no .env (default 3020).
     ports:
       - "${APP_PORT:-3020}:8080"

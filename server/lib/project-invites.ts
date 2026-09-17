@@ -35,13 +35,24 @@ export function inviteLinkPath(token: string): string {
   return `/invite/${token}`;
 }
 
-/** Origem pública do app (link compartilhável por e-mail). */
+/** Origem pública do app (link compartilhável). Sempre com porta se APP_PORT existir. */
 export function getPublicAppOrigin(): string {
   const raw =
     process.env.PUBLIC_APP_URL?.trim() ||
     process.env.WEB_ORIGIN?.trim() ||
     "";
-  return raw.replace(/\/+$/, "");
+  if (!raw) return "";
+
+  try {
+    const url = new URL(raw);
+    // Se WEB_ORIGIN veio sem porta (cai na 80), força APP_PORT do compose (ex.: 3020).
+    if (!url.port && process.env.APP_PORT?.trim()) {
+      url.port = process.env.APP_PORT.trim();
+    }
+    return url.origin.replace(/\/+$/, "");
+  } catch {
+    return raw.replace(/\/+$/, "");
+  }
 }
 
 export function inviteAbsoluteUrl(token: string): string {

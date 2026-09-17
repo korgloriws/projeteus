@@ -6,6 +6,18 @@ import { defineConfig } from "vite";
 const port = Number(process.env.WEB_PORT ?? 5173);
 const basePath = process.env.BASE_PATH ?? "/";
 
+/** Hostnames extras via env (vírgula), além dos padrões Hostinger/VPS. */
+const envAllowedHosts = (process.env.VITE_ALLOWED_HOSTS ?? "")
+  .split(",")
+  .map((host) => host.trim())
+  .filter(Boolean);
+
+const allowedHosts = [
+  "srv1176791.hstgr.cloud",
+  ".hstgr.cloud",
+  ...envAllowedHosts,
+];
+
 export default defineConfig({
   envDir: path.resolve(import.meta.dirname),
   base: basePath,
@@ -27,8 +39,7 @@ export default defineConfig({
     port,
     strictPort: false,
     host: true,
-    // VPS/Hostinger (ex.: srv….hstgr.cloud), IP e domínio customizado.
-    allowedHosts: true,
+    allowedHosts,
     proxy: {
       "/api": {
         target: process.env.VITE_API_URL ?? "http://localhost:8080",
@@ -46,6 +57,6 @@ export default defineConfig({
   preview: {
     port,
     host: true,
-    allowedHosts: true,
+    allowedHosts,
   },
 });
