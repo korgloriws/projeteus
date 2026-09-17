@@ -27,6 +27,8 @@ export default defineConfig({
     port,
     strictPort: false,
     host: true,
+    // VPS/Hostinger (ex.: srv….hstgr.cloud), IP e domínio customizado.
+    allowedHosts: true,
     proxy: {
       "/api": {
         target: process.env.VITE_API_URL ?? "http://localhost:8080",
@@ -44,5 +46,6 @@ export default defineConfig({
   preview: {
     port,
     host: true,
+    allowedHosts: true,
   },
 });

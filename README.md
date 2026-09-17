@@ -134,7 +134,8 @@ No `.env`, ajuste principalmente:
 
 - `APP_PORT` — porta pública (default `3020`; use uma livre na VPS)
 - `SESSION_SECRET` — já preenchido com valor aleatório pelo comando acima
-- `WEB_ORIGIN` — `http://31.97.167.75:<APP_PORT>`
+- `WEB_ORIGIN` — URL pública usada no navegador (IP **ou** hostname Hostinger), ex.:
+  `http://31.97.167.75:3020` ou `http://srv1176791.hstgr.cloud:3020`
 - `COOKIE_SECURE=false` (acesso por HTTP)
 
 ### 4) Subir a aplicação
@@ -143,7 +144,16 @@ No `.env`, ajuste principalmente:
 docker compose up -d --build
 ```
 
-O container roda `db:push` automaticamente (cria/atualiza o schema) e sobe a app.
+**Primeiro deploy (ou banco novo):** aplique o schema **uma vez**, com o container no ar:
+
+```bash
+docker compose exec app npm run db:push
+```
+
+> **Não** rode `db:push` a cada restart. Em mudanças de schema o Drizzle pode
+> recriar tabelas e **apagar dados**. Em produção: backup do volume/arquivo
+> SQLite antes de qualquer push.
+
 Crie o **admin inicial** (uma única vez — o seed apaga os dados!):
 
 ```bash
@@ -168,4 +178,6 @@ git pull
 docker compose up -d --build
 ```
 
-Os dados persistem no volume `projeteus_data` (SQLite), então rebuilds **não** apagam nada.
+Os dados persistem no volume `projeteus_data` (SQLite). Rebuild **não** aplica
+schema sozinho. Só rode `db:push` se a release trouxer mudança de schema, e
+**com backup** antes.

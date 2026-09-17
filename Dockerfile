@@ -5,7 +5,7 @@ FROM node:24-bookworm-slim
 WORKDIR /app
 
 # 1) Instala TODAS as dependências (dev incluídas): necessárias para o build
-#    (vite/esbuild) e para a migração de schema em runtime (tsx/drizzle-kit).
+#    (vite/esbuild). Schema NÃO é aplicado no start — use db:push manualmente.
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -21,6 +21,6 @@ ENV PORT=8080
 
 EXPOSE 8080
 
-# Migração de schema + start da aplicação.
+# Start da aplicação (sem db:push — evita perda de dados em produção).
 RUN chmod +x /app/docker-entrypoint.sh
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
